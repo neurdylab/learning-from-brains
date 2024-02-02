@@ -1074,4 +1074,26 @@ def get_args() -> argparse.ArgumentParser:
 
 if __name__ == '__main__':
 
-    trainer = train()
+    default_args = get_args().parse_args()
+
+    default_args.data='/home/wangs41/Dataset/NKI_decoding/rois/schaefer' #ds002105 represents the dataset's OpenNeuro identifier
+    default_args.n_train_subjects_per_dataset = 400 
+    default_args.n_val_subjects_per_dataset = 30
+    default_args.n_test_subjects_per_dataset = 3
+    default_args.architecture = 'GPT'
+    default_args.pretrained_model = '/home/wangs41/rvhr_pred/csm_code/results/models/upstream/GPT_lrs-4_hds-12_embd-768_train-CSM_lr-0005_bs-192_drp-01/model_final/pytorch_model.bin'
+    default_args.training_style = 'decoding'
+    default_args.decoding_target = 'rv' #'task_label.pyd'
+    default_args.num_decoding_classes = 50 #26
+    default_args.training_steps = 100
+    default_args.per_device_training_batch_size = 8
+    default_args.learning_rate = 1e-4
+    default_args.log_dir = '/home/wangs41/rvhr_pred/csm_code/results/models/upstream/GPT_CSM_test_train'
+    default_args.log_every_n_steps = 1000
+    default_args.fp16 = False
+    default_args.seq_min = 49
+
+    config = get_config(default_args)
+    print(type(config))
+
+    trainer = train(config)

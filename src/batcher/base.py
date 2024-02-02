@@ -283,6 +283,8 @@ class BaseBatcher:
         ) -> Dict[str, torch.Tensor]:
         out = dict(__key__=sample["__key__"])
         t_r = sample["t_r.pyd"]
+        hr = np.array(sample["hr"]).astype(np.float)
+        rv = np.array(sample["rv"]).astype(np.float)
 
         label = None
         f_s = None
@@ -304,10 +306,22 @@ class BaseBatcher:
 
                 seq_on, seq_len = self._sample_seq_on_and_len(bold_len=len(bold))
                 bold = bold[seq_on:seq_on+seq_len]
+                hr = hr[seq_on:seq_on + seq_len]
+                rv = rv[seq_on:seq_on + seq_len]
                 t_rs = np.arange(seq_len) * t_r
                 attention_mask = np.ones(seq_len)
                 bold = self._pad_seq_right_to_n(
                     seq=bold,
+                    n=self.seq_max,
+                    pad_value=0
+                )
+                hr = self._pad_seq_right_to_n(
+                    seq=hr,
+                    n=self.seq_max,
+                    pad_value=0
+                )
+                rv = self._pad_seq_right_to_n(
+                    seq=rv,
                     n=self.seq_max,
                     pad_value=0
                 )
@@ -321,7 +335,11 @@ class BaseBatcher:
                     n=self.seq_max,
                     pad_value=0
                 )
+                hr = np.squeeze(hr)
+                rv = np.squeeze(rv)
                 out["inputs"] = torch.from_numpy(bold).to(torch.float)
+                out["hr"] = torch.from_numpy(hr).to(torch.float)
+                out["rv"] = torch.from_numpy(rv).to(torch.float)
                 out['t_rs'] = torch.from_numpy(t_rs).to(torch.float)
                 out["attention_mask"] = torch.from_numpy(attention_mask).to(torch.long)
                 out['seq_on'] = seq_on

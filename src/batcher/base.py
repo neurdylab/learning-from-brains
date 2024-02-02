@@ -6,6 +6,12 @@ from typing import Dict
 import webdataset as wds
 import torch
 
+from itertools import cycle, islice
+from torch.utils.data import IterableDataset, DataLoader, Dataset
+import os
+import scipy.io
+
+physio_path = '/home/wangs41/Dataset/NKI_decoding/physio/bpf-ds'
 
 def _pad_seq_right_to_n(
     seq: np.ndarray,
@@ -27,6 +33,42 @@ def _pad_seq_right_to_n(
         axis=0,
     )
 
+class MyMapDataset(Dataset):
+    def __init__(self, file_path):
+        # self.file_name = no_motor
+        self.file_path = file_path#[0].split('/rois_')[0]
+    def __len__(self):
+        # print('MyMapDataset self', len(self.file_path))
+        return len(self.file_path)
+    def __getitem__(self, idx):
+        file_name0 = self.file_path[idx]
+        line = file_name0.split('_')[-1][0:13]
+        mat_file = scipy.io.loadmat(file_name0)
+        mat_data = mat_file['fmri_raw_roi']
+        mat_data = np.hstack((mat_data,mat_data,mat_data))[:,0:1024]
+        hr_path = physio_path + '/HR/' + line + '_hr_filt_ds.mat'
+        rv_path = physio_path + '/RV/' + line + '_rv_filt_ds.mat'
+        hr_data = scipy.io.loadmat(hr_path)['hr_filt_ds']
+        rv_data = scipy.io.loadmat(rv_path)['rv_filt_ds'] #404*1
+        
+        # import matplotlib.pyplot as plt
+        # plt.plot(rv_data)
+        # plt.show()
+        # plt.savefig('test')
+        from scipy.stats import zscore
+        hr_norm = zscore(hr_data, axis = 0)
+        rv_norm = zscore(rv_data, axis = 0)
+        mat_data_norm = zscore(mat_data, axis = 0)
+        sample = {"__key__": line,
+                  "t_r.pyd": 1.4,
+                  "bold.pyd": mat_data_norm,
+                  "task": 'resting',
+                  "hr":hr_norm,
+                  "rv":rv_norm,
+                  "labels": 1} # not sure what the label is for resting scans
+        return sample
+    def map(self, function):
+        return [function(self[i]) for i in range(len(self))]
 
 class BaseDataset(torch.utils.data.Dataset):
     def __init__(
@@ -92,18 +134,21 @@ class BaseBatcher:
         batch_size: int = 1,
         num_workers: int = 0
         ) -> Generator[Dict[str, torch.tensor], None, None]:
-        dataset = wds.WebDataset(files)
+        # dataset = wds.WebDataset(files)
+        # print('MyMapDataset files', len(files))
+        dataset = MyMapDataset(files)
+        dataset = dataset.map(self.preprocess_sample)
 
-        if n_shuffle_shards is not None:
-            dataset = dataset.shuffle(n_shuffle_shards)
+        # if n_shuffle_shards is not None:
+        #     dataset = dataset.shuffle(n_shuffle_shards)
 
-        dataset = dataset.decode("pil").map(self.preprocess_sample)
+        # dataset = dataset.decode("pil").map(self.preprocess_sample)
 
-        if repeat:
-            dataset = dataset.repeat()
+        # if repeat:
+        #     dataset = dataset.repeat()
         
-        if n_shuffle_samples is not None:
-            dataset = dataset.shuffle(n_shuffle_samples)
+        # if n_shuffle_samples is not None:
+        #     dataset = dataset.shuffle(n_shuffle_samples)
 
         return torch.utils.data.DataLoader(
             dataset=dataset,

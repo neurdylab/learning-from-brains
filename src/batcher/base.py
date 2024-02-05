@@ -6,6 +6,12 @@ from typing import Dict
 import webdataset as wds
 import torch
 
+from itertools import cycle, islice
+from torch.utils.data import IterableDataset, DataLoader, Dataset
+import os
+import scipy.io
+
+physio_path = '/home/wangs41/Dataset/NKI_decoding/physio/bpf-ds'
 
 def _pad_seq_right_to_n(
     seq: np.ndarray,
@@ -27,6 +33,42 @@ def _pad_seq_right_to_n(
         axis=0,
     )
 
+class MyMapDataset(Dataset):
+    def __init__(self, file_path):
+        # self.file_name = no_motor
+        self.file_path = file_path#[0].split('/rois_')[0]
+    def __len__(self):
+        # print('MyMapDataset self', len(self.file_path))
+        return len(self.file_path)
+    def __getitem__(self, idx):
+        file_name0 = self.file_path[idx]
+        line = file_name0.split('_')[-1][0:13]
+        mat_file = scipy.io.loadmat(file_name0)
+        mat_data = mat_file['fmri_raw_roi']
+        mat_data = np.hstack((mat_data,mat_data,mat_data))[:,0:1024]
+        hr_path = physio_path + '/HR/' + line + '_hr_filt_ds.mat'
+        rv_path = physio_path + '/RV/' + line + '_rv_filt_ds.mat'
+        hr_data = scipy.io.loadmat(hr_path)['hr_filt_ds']
+        rv_data = scipy.io.loadmat(rv_path)['rv_filt_ds'] #404*1
+        
+        # import matplotlib.pyplot as plt
+        # plt.plot(rv_data)
+        # plt.show()
+        # plt.savefig('test')
+        from scipy.stats import zscore
+        hr_norm = zscore(hr_data, axis = 0)
+        rv_norm = zscore(rv_data, axis = 0)
+        mat_data_norm = zscore(mat_data, axis = 0)
+        sample = {"__key__": line,
+                  "t_r.pyd": 1.4,
+                  "bold.pyd": mat_data_norm,
+                  "task": 'resting',
+                  "hr":hr_norm,
+                  "rv":rv_norm,
+                  "labels": 1} # not sure what the label is for resting scans
+        return sample
+    def map(self, function):
+        return [function(self[i]) for i in range(len(self))]
 
 class BaseDataset(torch.utils.data.Dataset):
     def __init__(
@@ -92,18 +134,21 @@ class BaseBatcher:
         batch_size: int = 1,
         num_workers: int = 0
         ) -> Generator[Dict[str, torch.tensor], None, None]:
-        dataset = wds.WebDataset(files)
+        # dataset = wds.WebDataset(files)
+        # print('MyMapDataset files', len(files))
+        dataset = MyMapDataset(files)
+        dataset = dataset.map(self.preprocess_sample)
 
-        if n_shuffle_shards is not None:
-            dataset = dataset.shuffle(n_shuffle_shards)
+        # if n_shuffle_shards is not None:
+        #     dataset = dataset.shuffle(n_shuffle_shards)
 
-        dataset = dataset.decode("pil").map(self.preprocess_sample)
+        # dataset = dataset.decode("pil").map(self.preprocess_sample)
 
-        if repeat:
-            dataset = dataset.repeat()
+        # if repeat:
+        #     dataset = dataset.repeat()
         
-        if n_shuffle_samples is not None:
-            dataset = dataset.shuffle(n_shuffle_samples)
+        # if n_shuffle_samples is not None:
+        #     dataset = dataset.shuffle(n_shuffle_samples)
 
         return torch.utils.data.DataLoader(
             dataset=dataset,
@@ -238,6 +283,8 @@ class BaseBatcher:
         ) -> Dict[str, torch.Tensor]:
         out = dict(__key__=sample["__key__"])
         t_r = sample["t_r.pyd"]
+        hr = np.array(sample["hr"]).astype(np.float)
+        rv = np.array(sample["rv"]).astype(np.float)
 
         label = None
         f_s = None
@@ -259,10 +306,22 @@ class BaseBatcher:
 
                 seq_on, seq_len = self._sample_seq_on_and_len(bold_len=len(bold))
                 bold = bold[seq_on:seq_on+seq_len]
+                hr = hr[seq_on:seq_on + seq_len]
+                rv = rv[seq_on:seq_on + seq_len]
                 t_rs = np.arange(seq_len) * t_r
                 attention_mask = np.ones(seq_len)
                 bold = self._pad_seq_right_to_n(
                     seq=bold,
+                    n=self.seq_max,
+                    pad_value=0
+                )
+                hr = self._pad_seq_right_to_n(
+                    seq=hr,
+                    n=self.seq_max,
+                    pad_value=0
+                )
+                rv = self._pad_seq_right_to_n(
+                    seq=rv,
                     n=self.seq_max,
                     pad_value=0
                 )
@@ -276,7 +335,11 @@ class BaseBatcher:
                     n=self.seq_max,
                     pad_value=0
                 )
+                hr = np.squeeze(hr)
+                rv = np.squeeze(rv)
                 out["inputs"] = torch.from_numpy(bold).to(torch.float)
+                out["hr"] = torch.from_numpy(hr).to(torch.float)
+                out["rv"] = torch.from_numpy(rv).to(torch.float)
                 out['t_rs'] = torch.from_numpy(t_rs).to(torch.float)
                 out["attention_mask"] = torch.from_numpy(attention_mask).to(torch.long)
                 out['seq_on'] = seq_on

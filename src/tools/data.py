@@ -11,42 +11,14 @@ def grab_tarfile_paths(path) -> Tuple[str]:
 
     for p in paths:
 
-        if os.path.isdir(
-            os.path.join(
-                path,
-                p
-            )
-        ):
-            tarfiles += [
-                os.path.join(
-                    path,
-                    p,
-                    f
-                )
-                for f in os.listdir(
-                    os.path.join(
-                        path,
-                        p
-                    )
-                )
-                if f.endswith('.tar')
+        if os.path.isdir(os.path.join(path,p)):
+            tarfiles += [os.path.join(path,p,f)
+                for f in os.listdir(os.path.join(path,p))
+                    if f.endswith('.mat')
             ]
 
-        elif np.logical_and(
-            os.path.isfile(
-                os.path.join(
-                    path,
-                    p
-                )
-            ), 
-            p.endswith('.tar')
-        ):
-            tarfiles.append(
-                os.path.join(
-                    path,
-                    p
-                )
-            )
+        elif np.logical_and(os.path.isfile(os.path.join(path,p)), p.endswith('.mat')):
+            tarfiles.append(os.path.join(path,p))
 
     return sorted(np.unique(tarfiles))
 
@@ -63,7 +35,7 @@ def split_tarfile_paths_train_val(
     np.random.seed(seed)
     datasets = np.unique(
         [
-            f.split('/')[-1].split('ds-')[1].split('_')[0]
+            f.split('/')[-1].split('_')[0]
             for f in tarfile_paths
         ]
     )
@@ -74,7 +46,7 @@ def split_tarfile_paths_train_val(
         dataset_tarfiles = np.unique(
             [
                 f for f in tarfile_paths
-                if f'ds-{dataset}' in f
+                if f'{dataset}' in f
             ]
         )
 
